@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Shot Tracker">
+<title>Golf Shot Tracker</title>
+<style>
+  /* ---------- Look and feel ---------- */
+  :root {
+    --green: #1f6f43; --green-dark: #154d2f; --sand: #f4efe2;
+    --ink: #1d1d1d; --muted: #6b6b6b; --line: #d9d3c3; --warn: #b45309;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, system-ui, sans-serif;
+    background: var(--sand); color: var(--ink);
+    padding: env(safe-area-inset-top) 16px 40px;
+  }
+  h1 { font-size: 22px; margin: 16px 0 4px; color: var(--green-dark); }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
+  .card {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px; margin-bottom: 14px;
+  }
+  .gps { font-size: 14px; color: var(--muted); }
+  .gps b { color: var(--ink); }
+  .gps.good b { color: var(--green); }
+  .gps.poor b { color: var(--warn); }
+  label { font-size: 14px; color: var(--muted); display: block; margin-bottom: 6px; }
+  select {
+    width: 100%; font-size: 18px; padding: 10px; border-radius: 10px;
+    border: 1px solid var(--line); background: #fff;
+  }
+  .step { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+  .step button { flex: 1; }
+  .check { width: 28px; text-align: center; font-size: 20px; }
+  button {
+    font-size: 18px; padding: 14px; border-radius: 12px; border: none;
+    background: var(--green); color: #fff; font-weight: 600;
+  }
+  button:disabled { background: #b9c7bd; }
+  button.secondary { background: #fff; color: var(--green-dark); border: 1px solid var(--line); }
+  button.small { font-size: 14px; padding: 8px 12px; }
+  .result {
+    display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; gap: 6px;
+    margin-top: 12px;
+  }
+  .result div { background: var(--sand); border-radius: 10px; padding: 10px 4px; }
+  .result .num { font-size: 26px; font-weight: 700; color: var(--green-dark); }
+  .result .lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+  .status { font-size: 14px; color: var(--muted); min-height: 20px; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  td.del { text-align: right; }
+  td.del button { background: none; color: var(--muted); padding: 0 4px; font-size: 16px; }
+  .row { display: flex; gap: 8px; margin-top: 10px; }
+  .row button { flex: 1; }
+</style>
+</head>
+<body>
+
+<h1>⛳ Shot Tracker</h1>
+<div class="sub">Mark where you hit, where it landed, and where it stopped.</div>
+
+<!-- Live GPS readout -->
+<div class="card">
+  <div id="gps" class="gps">GPS: <b>waiting…</b></div>
+</div>
+
+<!-- Recording a shot -->
+<div class="card">
+  <label for="club">Club</label>
+  <select id="club">
+    <option>Driver</option><option>4 Wood</option><option>7 Wood</option>
+    <option>Hybrid</option><option>4 Iron</option><option>5 Iron</option>
+    <option>6 Iron</option><option>7 Iron</option><option>8 Iron</option>
+    <option>9 Iron</option><option>48° PW</option><option>56° Wedge</option>
+    <option>58° Wedge</option>
+  </select>
+
+  <div class="step">
+    <span class="check" id="c1">1</span>
+    <button id="btnStart">Mark Hit Spot</button>
+  </div>
+  <div class="step">
+    <span class="check" id="c2">2</span>
+    <button id="btnLand" disabled>Mark Landing (pitch mark)</button>
+  </div>
+  <div class="step">
+    <span class="check" id="c3">3</span>
+    <button id="btnRest" disabled>Mark Ball at Rest</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="result" id="result" hidden>
+    <div><div class="num" id="rCarry">–</div><div class="lbl">Carry</div></div>
+    <div><div class="num" id="rRoll">–</div><div class="lbl">Roll</div></div>
+    <div><div class="num" id="rTotal">–</div><div class="lbl">Total</div></div>
+  </div>
+
+  <div class="row">
+    <button class="secondary" id="btnSave" disabled>Save Shot</button>
+    <button class="secondary" id="btnReset">Start Over</button>
+  </div>
+</div>
+
+<!-- Averages per club -->
+<div class="card">
+  <b>Averages by club</b>
+  <table id="avgTable"><thead><tr>
+    <th>Club</th><th>Shots</th><th>Carry</th><th>Roll</th><th>Total</th>
+  </tr></thead><tbody></tbody></table>
+</div>
+
+<!-- Shot history -->
+<div class="card">
+  <b>Shot history</b>
+  <table id="histTable"><thead><tr>
+    <th>Club</th><th>Carry</th><th>Roll</th><th>Total</th><th></th>
+  </tr></thead><tbody></tbody></table>
+  <div class="row">
+    <button class="secondary small" id="btnExport">Export CSV</button>
+    <button class="secondary small" id="btnClear">Clear All</button>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   GOLF SHOT TRACKER
+   How it works:
+   1. While you stand at each spot, the phone collects GPS readings
+      for a few seconds and averages them (one reading alone can be
+      off by several yards).
+   2. Distances between spots use the "haversine" formula, the
+      standard way to get the distance between two lat/long points.
+   3. Carry = hit spot -> landing.  Roll = landing -> rest.
+      Total = hit spot -> rest (straight line).
+   ===================================================================== */
+
+// ---- Settings you can tweak ----
+const SAMPLE_SECONDS = 6;      // how long to collect readings at each spot
+const MAX_ACCURACY_M = 20;     // ignore readings worse than this (meters)
+const METERS_TO_YARDS = 1.09361;
+
+// ---- State for the shot in progress ----
+let shot = { start: null, land: null, rest: null };
+let latestFix = null;          // most recent GPS reading (for the live display)
+let busy = false;              // true while sampling a spot
+
+// ---- Grab page elements ----
+const $ = id => document.getElementById(id);
+
+/* ---------------------------------------------------------------------
+   Live GPS: keep the GPS radio "warm" the whole time the page is open.
+   This makes each mark faster and more accurate.
+   --------------------------------------------------------------------- */
+function startLiveGps() {
+  if (!("geolocation" in navigator)) {
+    $("gps").innerHTML = "GPS: <b>not available in this browser</b>";
+    return;
+  }
+  navigator.geolocation.watchPosition(
+    pos => {
+      latestFix = pos;
+      const acc = pos.coords.accuracy * METERS_TO_YARDS;
+      const el = $("gps");
+      el.className = "gps " + (acc <= 8 ? "good" : "poor");
+      el.innerHTML = `GPS accuracy: <b>±${acc.toFixed(0)} yds</b>` +
+        (acc > 8 ? " — wait a moment for a better signal" : "");
+    },
+    err => {
+      $("gps").innerHTML = `GPS: <b>${err.message}</b> (allow Location for this site)`;
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+  );
+}
+
+/* ---------------------------------------------------------------------
+   Sample one spot: collect readings for SAMPLE_SECONDS, throw away the
+   bad ones, and return a weighted average (more accurate readings count
+   more).
+   --------------------------------------------------------------------- */
+function samplePosition() {
+  return new Promise((resolve, reject) => {
+    const readings = [];
+    const id = navigator.geolocation.watchPosition(
+      pos => {
+        if (pos.coords.accuracy <= MAX_ACCURACY_M) readings.push(pos.coords);
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+    );
+
+    let secondsLeft = SAMPLE_SECONDS;
+    $("status").textContent = `Hold still… ${secondsLeft}`;
+    const timer = setInterval(() => {
+      secondsLeft--;
+      $("status").textContent = `Hold still… ${secondsLeft}`;
+      if (secondsLeft > 0) return;
+
+      clearInterval(timer);
+      navigator.geolocation.clearWatch(id);
+
+      if (readings.length === 0) {
+        reject(new Error("No good GPS readings — try again in the open."));
+        return;
+      }
+      // Weighted average: weight = 1 / accuracy²
+      let wSum = 0, lat = 0, lon = 0, accSum = 0;
+      for (const c of readings) {
+        const w = 1 / (c.accuracy * c.accuracy);
+        lat += c.latitude * w;
+        lon += c.longitude * w;
+        wSum += w;
+        accSum += c.accuracy;
+      }
+      resolve({
+        lat: lat / wSum,
+        lon: lon / wSum,
+        accuracy: accSum / readings.length,
+        count: readings.length
+      });
+    }, 1000);
+  });
+}
+
+/* ---------------------------------------------------------------------
+   Haversine distance between two points, in yards.
+   --------------------------------------------------------------------- */
+function distanceYards(a, b) {
+  const R = 6371000; // Earth's radius in meters
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) *
+            Math.sin(dLon / 2) ** 2;
+  const meters = 2 * R * Math.asin(Math.sqrt(h));
+  return meters * METERS_TO_YARDS;
+}
+
+/* ---------------------------------------------------------------------
+   Button handlers for the three marks
+   --------------------------------------------------------------------- */
+async function mark(which, buttonId, checkId, nextButtonId) {
+  if (busy) return;
+  busy = true;
+  setButtons(true);
+  try {
+    shot[which] = await samplePosition();
+    $(checkId).textContent = "✅";
+    $("status").textContent =
+      `Marked (${shot[which].count} readings, ±${(shot[which].accuracy * METERS_TO_YARDS).toFixed(0)} yds)`;
+    if (nextButtonId) $(nextButtonId).disabled = false;
+    updateResult();
+  } catch (e) {
+    $("status").textContent = e.message;
+  }
+  busy = false;
+  setButtons(false);
+}
+
+// While sampling, lock all buttons; afterwards restore the right ones.
+function setButtons(lock) {
+  $("btnStart").disabled = lock;
+  $("btnLand").disabled = lock || !shot.start;
+  $("btnRest").disabled = lock || !shot.start;   // landing is optional
+  $("btnSave").disabled = lock || !(shot.start && shot.rest);
+}
+
+function currentNumbers() {
+  const total = shot.start && shot.rest ? distanceYards(shot.start, shot.rest) : null;
+  const carry = shot.start && shot.land ? distanceYards(shot.start, shot.land) : null;
+  const roll  = shot.land && shot.rest ? distanceYards(shot.land, shot.rest) : null;
+  return { carry, roll, total };
+}
+
+function updateResult() {
+  const { carry, roll, total } = currentNumbers();
+  if (carry === null && total === null) return;
+  $("result").hidden = false;
+  $("rCarry").textContent = carry === null ? "–" : carry.toFixed(0);
+  $("rRoll").textContent  = roll  === null ? "–" : roll.toFixed(0);
+  $("rTotal").textContent = total === null ? "–" : total.toFixed(0);
+}
+
+function resetShot() {
+  shot = { start: null, land: null, rest: null };
+  $("c1").textContent = "1"; $("c2").textContent = "2"; $("c3").textContent = "3";
+  $("result").hidden = true;
+  $("status").textContent = "";
+  setButtons(false);
+}
+
+/* ---------------------------------------------------------------------
+   Saving shots on the phone (localStorage keeps them between visits)
+   --------------------------------------------------------------------- */
+const STORE_KEY = "golfShots";
+
+function loadShots() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+  catch { return []; }
+}
+function saveShots(list) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+  catch { $("status").textContent = "Couldn't save on this device."; }
+}
+
+function saveCurrentShot() {
+  const { carry, roll, total } = currentNumbers();
+  const list = loadShots();
+  list.unshift({
+    date: new Date().toISOString(),
+    club: $("club").value,
+    carry: carry === null ? null : Math.round(carry),
+    roll:  roll  === null ? null : Math.round(roll),
+    total: Math.round(total)
+  });
+  saveShots(list);
+  renderTables();
+  resetShot();
+  $("status").textContent = "Shot saved.";
+}
+
+/* ---------------------------------------------------------------------
+   Tables: history and per-club averages
+   --------------------------------------------------------------------- */
+function renderTables() {
+  const list = loadShots();
+  const show = v => (v === null || v === undefined) ? "–" : v;
+
+  // History
+  const hist = $("histTable").querySelector("tbody");
+  hist.innerHTML = "";
+  list.forEach((s, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${s.club}</td><td>${show(s.carry)}</td><td>${show(s.roll)}</td>
+      <td>${s.total}</td><td class="del"><button data-i="${i}">✕</button></td>`;
+    hist.appendChild(tr);
+  });
+  hist.querySelectorAll("button").forEach(b =>
+    b.onclick = () => {
+      const l = loadShots();
+      l.splice(Number(b.dataset.i), 1);
+      saveShots(l);
+      renderTables();
+    });
+
+  // Averages (carry/roll only count shots where landing was marked)
+  const byClub = {};
+  for (const s of list) {
+    const c = byClub[s.club] ||= { n: 0, total: 0, carryN: 0, carry: 0, roll: 0 };
+    c.n++; c.total += s.total;
+    if (s.carry !== null) { c.carryN++; c.carry += s.carry; c.roll += s.roll; }
+  }
+  const order = [...$("club").options].map(o => o.value);
+  const avg = $("avgTable").querySelector("tbody");
+  avg.innerHTML = "";
+  for (const club of order) {
+    const c = byClub[club];
+    if (!c) continue;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${club}</td><td>${c.n}</td>
+      <td>${c.carryN ? Math.round(c.carry / c.carryN) : "–"}</td>
+      <td>${c.carryN ? Math.round(c.roll / c.carryN) : "–"}</td>
+      <td>${Math.round(c.total / c.n)}</td>`;
+    avg.appendChild(tr);
+  }
+}
+
+function exportCsv() {
+  const list = loadShots();
+  const rows = [["date", "club", "carry_yds", "roll_yds", "total_yds"]];
+  list.forEach(s => rows.push([s.date, s.club, s.carry ?? "", s.roll ?? "", s.total]));
+  const csv = rows.map(r => r.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "golf-shots.csv";
+  a.click();
+}
+
+/* ---------------------------------------------------------------------
+   Wire it all up
+   --------------------------------------------------------------------- */
+$("btnStart").onclick = () => { resetShot(); mark("start", "btnStart", "c1", "btnLand"); };
+$("btnLand").onclick  = () => mark("land", "btnLand", "c2", "btnRest");
+$("btnRest").onclick  = () => mark("rest", "btnRest", "c3", null);
+$("btnSave").onclick  = saveCurrentShot;
+$("btnReset").onclick = resetShot;
+$("btnExport").onclick = exportCsv;
+$("btnClear").onclick = () => {
+  if (loadShots().length && confirmClear()) { saveShots([]); renderTables(); }
+};
+// Two-tap clear instead of a pop-up dialog
+let clearArmed = false;
+function confirmClear() {
+  if (clearArmed) { clearArmed = false; $("btnClear").textContent = "Clear All"; return true; }
+  clearArmed = true;
+  $("btnClear").textContent = "Tap again to clear";
+  setTimeout(() => { clearArmed = false; $("btnClear").textContent = "Clear All"; }, 3000);
+  return false;
+}
+
+startLiveGps();
+renderTables();
+setButtons(false);
+</script>
+</body>
+</html>
